@@ -14,7 +14,6 @@ def extract_image_metadata(file_path):
 
         print("\n=== IMAGE METADATA ===")
 
-        # HEIC/HEIF metadata
         if "exif" in img.info:
             from PIL import ExifTags
             exif = img.getexif()
@@ -23,7 +22,6 @@ def extract_image_metadata(file_path):
                 print(f"{tag}: {value}")
             return
 
-        # Fallback for formats that support _getexif()
         if hasattr(img, "_getexif") and img._getexif():
             exif_data = img._getexif()
             for tag_id, value in exif_data.items():
