@@ -14,6 +14,7 @@ CREATE TABLE post (
     post_id SERIAL PRIMARY KEY,
     url TEXT NOT NULL,
     media_type VARCHAR(20) CHECK (media_type IN ('video', 'photo', 'none')),
+    thumb_url TEXT,
     description TEXT
 );
 
