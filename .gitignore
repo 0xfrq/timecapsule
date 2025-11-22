@@ -1,2 +1,5 @@
-/server/generatives/grok_cookies.json
 .env
+.env.*
+/server/generatives/grok_cookies.json
+__pycache__/
+*.pyc
