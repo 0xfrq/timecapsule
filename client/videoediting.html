@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>timecapsule</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+<style>
+.overlay-layer {
+  position: absolute;
+  cursor: move;
+  border: 2px solid transparent;
+  box-shadow: none;
+}
+.overlay-layer.selected {
+  border: 2px solid #4a9eff;
+  box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+}
+.overlay-layer img {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.resize-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #4a9eff;
+  border: 2px solid white;
+  border-radius: 50%;
+  display: none;
+}
+.overlay-layer.selected .resize-handle {
+  display: block;
+}
+.resize-handle.nw {
+  top: -6px;
+  left: -6px;
+  cursor: nw-resize;
+}
+.resize-handle.ne {
+  top: -6px;
+  right: -6px;
+  cursor: ne-resize;
+}
+.resize-handle.sw {
+  bottom: -6px;
+  left: -6px;
+  cursor: sw-resize;
+}
+.resize-handle.se {
+  bottom: -6px;
+  right: -6px;
+  cursor: se-resize;
+}
+.timeline-thumb {
+  flex-shrink: 0;
+  height: 100%;
+  border-right: 1px solid #3a3a3a;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.7;
+}
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ff4444;
+  z-index: 10;
+  pointer-events: none;
+}
+.timeline-playhead::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  background: #ff4444;
+  border-radius: 50%;
+}
+</style>
+</head>
+<body class="bg-[#1a1a1a] text-gray-200 overflow-hidden">
+  <div class="flex flex-col h-screen">
+    <div class="bg-[#2a2a2a] px-5 py-2.5 border-b border-[#3a3a3a] flex gap-4 items-center">
+      <h1 class="text-lg text-blue-400 mr-auto flex items-center gap-2">
+        <i class="fas fa-film"></i> timecapsule
+      </h1>
+      <button id="exportBtn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2 text-sm transition">
+        <i class="fas fa-download"></i> Export Frame </button>
+    </div>
+    <div class="flex flex-1 overflow-hidden">
+      <div class="flex-1 flex flex-col bg-[#252525] p-5">
+        <div id="videoContainer" class="flex-1 flex items-center justify-center bg-black rounded-lg relative overflow-hidden">
+          <canvas id="videoCanvas" class="max-w-full max-h-full block"></canvas>
+          <video id="video" class="hidden" crossorigin="anonymous"></video>
+        </div>
+        <div class="mt-4 flex gap-2.5 items-center justify-center">
+          <button id="playBtn" class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition">
+            <i class="fas fa-play"></i>
+          </button>
+          <div class="text-sm text-gray-400 min-w-[120px] text-center">
+            <span id="currentTime">00:00.000</span> / <span id="duration">00:00.000</span>
+          </div>
+        </div>
+      </div>
+      <div class="w-[300px] bg-[#2a2a2a] border-l border-[#3a3a3a] p-5 overflow-y-auto">
+        <h3 class="text-base mb-4 text-blue-400 flex items-center gap-2">
+          <i class="fas fa-video"></i> Import Media
+        </h3>
+        <div class="mb-5">
+          <label class="block mb-2 text-sm text-gray-300">Video File</label>
+          <div class="file-btn w-full p-2.5 bg-[#3a3a3a] border-2 border-dashed border-gray-600 rounded cursor-pointer text-center hover:border-blue-400 hover:bg-[#404040] transition">
+            <input type="file" id="videoInput" accept="video/*" class="hidden" />
+            <i class="fas fa-file-video"></i> Choose Video
+          </div>
+        </div>
+        <div class="mb-5">
+          <label class="block mb-2 text-sm text-gray-300">Overlay Image</label>
+          <div class="file-btn w-full p-2.5 bg-[#3a3a3a] border-2 border-dashed border-gray-600 rounded cursor-pointer text-center hover:border-blue-400 hover:bg-[#404040] transition">
+            <input type="file" id="overlayInput" accept="image/*" class="hidden" />
+            <i class="fas fa-image"></i> Add Overlay
+          </div>
+        </div>
+        <h3 class="text-base mb-4 text-blue-400 flex items-center gap-2 mt-8">
+          <i class="fas fa-layer-group"></i> Overlays
+        </h3>
+        <div id="overlayList"></div>
+      </div>
+    </div>
+    <div class="h-[200px] bg-[#1f1f1f] border-t border-[#3a3a3a] flex flex-col">
+      <div class="px-5 py-2.5 bg-[#2a2a2a] border-b border-[#3a3a3a] text-sm font-semibold">
+        <i class="fas fa-film"></i> Timeline
+      </div>
+      <div id="timelineContent" class="flex-1 relative overflow-x-auto overflow-y-hidden">
+        <div id="timelineTrack" class="h-[60px] bg-[#252525] m-2.5 rounded relative border border-[#3a3a3a]">
+          <div id="timelineThumbnails" class="flex h-full relative"></div>
+          <div id="playhead" class="timeline-playhead"></div>
+          <div id="timelineSlider" class="absolute inset-0 cursor-pointer"></div>
+        </div>
+        <div class="absolute right-5 bottom-5 flex gap-1">
+          <button id="zoomOut" class="w-8 h-8 bg-gray-700 rounded text-white hover:bg-gray-600 flex items-center justify-center">
+            <i class="fas fa-search-minus"></i>
+          </button>
+          <button id="zoomIn" class="w-8 h-8 bg-gray-700 rounded text-white hover:bg-gray-600 flex items-center justify-center">
+            <i class="fas fa-search-plus"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+const video = document.getElementById("video");
+const videoCanvas = document.getElementById("videoCanvas");
+const ctx = videoCanvas.getContext("2d");
+const videoContainer = document.getElementById("videoContainer");
+const videoInput = document.getElementById("videoInput");
+const overlayInput = document.getElementById("overlayInput");
+const playBtn = document.getElementById("playBtn");
+const currentTimeDisplay = document.getElementById("currentTime");
+const durationDisplay = document.getElementById("duration");
+const timelineTrack = document.getElementById("timelineTrack");
+const timelineThumbnails = document.getElementById("timelineThumbnails");
+const playhead = document.getElementById("playhead");
+const timelineSlider = document.getElementById("timelineSlider");
+const overlayList = document.getElementById("overlayList");
+const exportBtn = document.getElementById("exportBtn");
+
+let overlays = [];
+let selectedOverlay = null;
+let isDragging = false;
+let isResizing = false;
+let dragStart = { x: 0, y: 0 };
+let resizeHandle = null;
+let zoomLevel = 1;
+let thumbnailCount = 20;
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+videoInput.addEventListener("change", function (e) {
+  const file = e.target.files[0];
+  if (file) {
+    const url = URL.createObjectURL(file);
+    video.src = url;
+    video.load();
+  }
+});
+
+video.addEventListener("loadedmetadata", function () {
+  resizeCanvas();
+  durationDisplay.textContent = formatTime(video.duration);
+  generateThumbnails();
+});
+
+function resizeCanvas() {
+  const containerRect = videoContainer.getBoundingClientRect();
+  const videoAspect = video.videoWidth / video.videoHeight;
+  const containerAspect = containerRect.width / containerRect.height;
+
+  if (containerAspect > videoAspect) {
+    videoCanvas.height = containerRect.height - 40;
+    videoCanvas.width = videoCanvas.height * videoAspect;
+  } else {
+    videoCanvas.width = containerRect.width - 40;
+    videoCanvas.height = videoCanvas.width / videoAspect;
+  }
+}
+
+window.addEventListener("resize", resizeCanvas);
+
+function drawFrame() {
+  if (video.readyState >= 2) {
+    ctx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+    ctx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
+  }
+  requestAnimationFrame(drawFrame);
+}
+
+video.addEventListener("loadeddata", function () {
+  drawFrame();
+});
+
+playBtn.addEventListener("click", function () {
+  if (video.paused) {
+    video.play();
+    playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+  } else {
+    video.pause();
+    playBtn.innerHTML = '<i class="fas fa-play"></i>';
+  }
+});
+
+video.addEventListener("timeupdate", function () {
+  currentTimeDisplay.textContent = formatTime(video.currentTime);
+  updatePlayhead();
+});
+
+function updatePlayhead() {
+  if (video.duration) {
+    const percent = (video.currentTime / video.duration) * 100;
+    playhead.style.left = percent + "%";
+  }
+}
+
+timelineSlider.addEventListener("click", function (e) {
+  const rect = timelineTrack.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const percent = x / rect.width;
+  video.currentTime = percent * video.duration;
+});
+
+overlayInput.addEventListener("change", function (e) {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      const img = new Image();
+      img.onload = function () {
+        const overlay = {
+          id: Date.now(),
+          image: img,
+          src: event.target.result,
+          x: 50,
+          y: 50,
+          width: 200,
+          height: (img.height / img.width) * 200,
+          originalWidth: img.width,
+          originalHeight: img.height,
+          name: file.name,
+        };
+        overlays.push(overlay);
+        createOverlayElement(overlay);
+        updateOverlayList();
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+function createOverlayElement(overlay) {
+  const div = document.createElement("div");
+  div.className = "overlay-layer";
+  div.id = "overlay-" + overlay.id;
+  div.style.left = overlay.x + "px";
+  div.style.top = overlay.y + "px";
+  div.style.width = overlay.width + "px";
+  div.style.height = overlay.height + "px";
+
+  const img = document.createElement("img");
+  img.src = overlay.src;
+  div.appendChild(img);
+
+  const handles = ["nw", "ne", "sw", "se"];
+  handles.forEach((pos) => {
+    const handle = document.createElement("div");
+    handle.className = "resize-handle " + pos;
+    handle.dataset.handle = pos;
+    div.appendChild(handle);
+  });
+
+  div.addEventListener("mousedown", startDrag);
+  videoContainer.appendChild(div);
+}
+
+function startDrag(e) {
+  // Deselect all overlays first
+  document.querySelectorAll('.overlay-layer').forEach(el => {
+    el.classList.remove('selected');
+  });
+  
+  if (e.target.classList.contains("resize-handle")) {
+    isResizing = true;
+    resizeHandle = e.target.dataset.handle;
+    selectedOverlay = overlays.find(
+      (o) => o.id == e.currentTarget.id.replace("overlay-", ""),
+    );
+  } else {
+    isDragging = true;
+    selectedOverlay = overlays.find(
+      (o) => o.id == e.currentTarget.id.replace("overlay-", ""),
+    );
+  }
+  
+  // Select the current overlay
+  e.currentTarget.classList.add('selected');
+  
+  dragStart = { x: e.clientX, y: e.clientY };
+  e.preventDefault();
+}
+
+document.addEventListener("mousemove", function (e) {
+  if (isDragging && selectedOverlay) {
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    selectedOverlay.x += dx;
+    selectedOverlay.y += dy;
+    const el = document.getElementById("overlay-" + selectedOverlay.id);
+    el.style.left = selectedOverlay.x + "px";
+    el.style.top = selectedOverlay.y + "px";
+    dragStart = { x: e.clientX, y: e.clientY };
+  }
+  if (isResizing && selectedOverlay) {
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    const el = document.getElementById("overlay-" + selectedOverlay.id);
+
+    if (resizeHandle === "se") {
+      selectedOverlay.width += dx;
+      selectedOverlay.height += dy;
+    } else if (resizeHandle === "sw") {
+      selectedOverlay.x += dx;
+      selectedOverlay.width -= dx;
+      selectedOverlay.height += dy;
+    } else if (resizeHandle === "ne") {
+      selectedOverlay.y += dy;
+      selectedOverlay.width += dx;
+      selectedOverlay.height -= dy;
+    } else if (resizeHandle === "nw") {
+      selectedOverlay.x += dx;
+      selectedOverlay.y += dy;
+      selectedOverlay.width -= dx;
+      selectedOverlay.height -= dy;
+    }
+
+    el.style.left = selectedOverlay.x + "px";
+    el.style.top = selectedOverlay.y + "px";
+    el.style.width = selectedOverlay.width + "px";
+    el.style.height = selectedOverlay.height + "px";
+    dragStart = { x: e.clientX, y: e.clientY };
+  }
+});
+
+document.addEventListener("mouseup", function () {
+  isDragging = false;
+  isResizing = false;
+  resizeHandle = null;
+});
+
+function updateOverlayList() {
+  overlayList.innerHTML = "";
+  overlays.forEach((overlay) => {
+    const item = document.createElement("div");
+    item.className = "bg-[#3a3a3a] p-2.5 rounded mb-2.5 flex items-center gap-2.5";
+    item.innerHTML = `
+<img src="${overlay.src}" class="w-[50px] h-[50px] object-cover rounded" />
+<div class="flex-1">
+<div class="text-xs text-gray-300 mb-1">${overlay.name}</div>
+</div>
+<div class="flex gap-1">
+<button class="w-8 h-8 bg-gray-700 rounded text-white hover:bg-gray-600 flex items-center justify-center" onclick="removeOverlay(${overlay.id})">
+<i class="fas fa-trash"></i>
+</button>
+</div>
+`;
+    overlayList.appendChild(item);
+  });
+}
+
+window.removeOverlay = function (id) {
+  overlays = overlays.filter((o) => o.id !== id);
+  const el = document.getElementById("overlay-" + id);
+  if (el) el.remove();
+  updateOverlayList();
+};
+
+exportBtn.addEventListener("click", function () {
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = video.videoWidth;
+  exportCanvas.height = video.videoHeight;
+  const exportCtx = exportCanvas.getContext("2d");
+
+  exportCtx.drawImage(video, 0, 0, exportCanvas.width, exportCanvas.height);
+
+  // Get canvas position within container
+  const canvasRect = videoCanvas.getBoundingClientRect();
+  const containerRect = videoContainer.getBoundingClientRect();
+  
+  // Calculate offset of canvas within container
+  const canvasOffsetX = canvasRect.left - containerRect.left;
+  const canvasOffsetY = canvasRect.top - containerRect.top;
+  
+  const scaleX = video.videoWidth / videoCanvas.width;
+  const scaleY = video.videoHeight / videoCanvas.height;
+
+  overlays.forEach((overlay) => {
+    const relativeX = overlay.x - canvasOffsetX;
+    const relativeY = overlay.y - canvasOffsetY;
+    
+    exportCtx.drawImage(
+      overlay.image,
+      relativeX * scaleX,
+      relativeY * scaleY,
+      overlay.width * scaleX,
+      overlay.height * scaleY,
+    );
+  });
+
+  exportCanvas.toBlob(function (blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "exported-frame.png";
+    a.click();
+  });
+});
+
+function generateThumbnails() {
+  timelineThumbnails.innerHTML = "";
+  const duration = video.duration;
+  const thumbWidth = 80 * zoomLevel;
+  const totalWidth = thumbWidth * thumbnailCount;
+  timelineThumbnails.style.width = totalWidth + "px";
+
+  for (let i = 0; i < thumbnailCount; i++) {
+    const thumb = document.createElement("div");
+    thumb.className = "timeline-thumb";
+    thumb.style.width = thumbWidth + "px";
+    timelineThumbnails.appendChild(thumb);
+
+    const time = (duration / thumbnailCount) * i;
+    captureThumbnail(time, thumb);
+  }
+}
+
+function captureThumbnail(time, thumbElement) {
+  const tempCanvas = document.createElement("canvas");
+  const tempCtx = tempCanvas.getContext("2d");
+
+  video.currentTime = time;
+  video.addEventListener(
+    "seeked",
+    function onSeeked() {
+      tempCanvas.width = video.videoWidth;
+      tempCanvas.height = video.videoHeight;
+      tempCtx.drawImage(video, 0, 0);
+      thumbElement.style.backgroundImage = `url(${tempCanvas.toDataURL()})`;
+      video.removeEventListener("seeked", onSeeked);
+    },
+    { once: true },
+  );
+}
+
+// Click outside overlays to deselect
+videoContainer.addEventListener('click', function(e) {
+  if (e.target === videoContainer || e.target === videoCanvas) {
+    document.querySelectorAll('.overlay-layer').forEach(el => {
+      el.classList.remove('selected');
+    });
+    selectedOverlay = null;
+  }
+});
+
+document.getElementById("zoomIn").addEventListener("click", function () {
+  zoomLevel = Math.min(zoomLevel + 0.5, 5);
+  updateTimelineZoom();
+});
+
+document.getElementById("zoomOut").addEventListener("click", function () {
+  zoomLevel = Math.max(zoomLevel - 0.5, 0.5);
+  updateTimelineZoom();
+});
+
+function updateTimelineZoom() {
+  thumbnailCount = 20;
+  generateThumbnails();
+}
+
+document.querySelectorAll(".file-btn").forEach((btn) => {
+  btn.addEventListener("click", function () {
+    this.querySelector("input").click();
+  });
+});
+</script>
+</body>
+</html>
