@@ -36,3 +36,10 @@ CREATE TABLE post_like (
     PRIMARY KEY (user_id, post_id) 
 );
 
+CREATE TABLE comments (
+    comment_id SERIAL PRIMARY KEY,
+    post_id INTEGER REFERENCES post(post_id) ON DELETE CASCADE,
+    user_id INTEGER,
+    parent_comment_id INTEGER REFERENCES comments(comment_id) ON DELETE CASCADE,
+    text TEXT
+);
