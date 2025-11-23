@@ -497,7 +497,7 @@ def main():
             prompt, 
             output_dir=output_dir,
             num_images=num_images,
-            wait_time=50
+            wait_time=30
         )
         
         if success:
