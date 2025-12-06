@@ -8,7 +8,7 @@ import re
 DB_HOST = "localhost"
 DB_NAME = "timecapsule"
 DB_USER = "postgres"
-DB_PASS = "xxx"
+DB_PASS = "123"
 # =============================================
 
 # --- URL PROCESSING ---
@@ -270,15 +270,3 @@ if __name__ == "__main__":
             if hasil_komentar:
                 # 5. Save Comments Into DB
                 tiktok_comment_db(post_id_db, hasil_komentar)
-
-
-""""
--- Buat tabel baru (TANPA kolom year)
-CREATE TABLE comments (
-    comment_id SERIAL PRIMARY KEY,
-    post_id INTEGER REFERENCES post(post_id) ON DELETE CASCADE,
-    user_id INTEGER, -- Ini nanti diisi angka random 1-20
-    parent_comment_id INTEGER REFERENCES comments(comment_id) ON DELETE CASCADE,
-    text TEXT
-);
-"""
