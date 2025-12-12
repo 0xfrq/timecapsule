@@ -43,3 +43,56 @@ class Banner(models.Model):
 
     def __str__(self):
         return f"Banner for {self.profile.user.username} - {self.title or 'Untitled'}"
+
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+
+    def __str__(self):
+        return self.name
+
+class Post(models.Model):
+    MEDIA_TYPE_CHOICES = [
+        ('video', 'Video'),
+        ('photo', 'Photo'),
+        ('none', 'None'),
+    ]
+    
+    url = models.TextField()
+    media_type = models.CharField(max_length=20, choices=MEDIA_TYPE_CHOICES)
+    thumb_url = models.TextField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    tags = models.ManyToManyField(Tag, related_name='posts', blank=True)
+
+    def __str__(self):
+        return f"Post {self.id} ({self.media_type})"
+
+class PostTime(models.Model):
+    post = models.OneToOneField(Post, on_delete=models.CASCADE, related_name='timestamp')
+    year = models.IntegerField()
+
+    def __str__(self):
+        return f"Year {self.year} for Post {self.post.id}"
+
+class PostLike(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='likes')
+
+    class Meta:
+        # Prevent double likes
+        unique_together = ('user', 'post')
+
+    def __str__(self):
+        return f"{self.user.username} likes Post {self.post.id}"
+
+class Comment(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
+    
+    # ‘dummy_user_id’ for clarity that this is not a real user
+    dummy_user_id = models.IntegerField(null=True, blank=True)
+    
+    # Self-reference for Reply feature
+    parent_comment = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
+    text = models.TextField()
+
+    def __str__(self):
+        return f"Comment {self.id} on Post {self.post.id}"

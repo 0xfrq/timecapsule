@@ -8,7 +8,7 @@ import re
 DB_HOST = "localhost"
 DB_NAME = "timecapsule"
 DB_USER = "postgres"
-DB_PASS = "xxx"
+DB_PASS = "123"
 # =============================================
 
 # --- URL PROCESSING ---
@@ -31,78 +31,94 @@ def parse_insta_url(url):
     return None, None
 
 # --- DETAILS SCRAPER ---
-def insta_detail_scraper(target_url, api_type):
+def insta_detail_scraper(target_url, shortcode_input, api_type):
     print(f"[INFO] Scraping details for URL: {target_url}...")
-    url = "https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php"
-    
-    querystring = {
-        "reel_post_code_or_url": target_url,
-        "type": api_type
-    }
+    URL_API_VISUAL = "https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data_v2.php"
+    URL_API_TEXT   = "https://instagram-scraper-stable-api.p.rapidapi.com/get_reel_title.php"
     
     headers = {
         "x-rapidapi-key": "31b6bb776fmshf2f28b986086358p1bdcc1jsn15e4b0eb8f34",
         "x-rapidapi-host": "instagram-scraper-stable-api.p.rapidapi.com"
     }
 
+    # Variabel
+    clean_url = f"https://www.instagram.com/p/{shortcode_input}"
+    thumbnail_url = ""
+    media_type_db = "photo"
+    description = ""
+    year = datetime.now().year
+    ig_id = None
+    tags = []
+
+    # Visual & Metadata
     try:
-        response = requests.get(url, headers=headers, params=querystring)
-        data = response.json()
+        qs_visual = {"media_code": shortcode_input}
+        
+        print("   -> Requesting Visual Data...")
+        res_vis = requests.get(URL_API_VISUAL, headers=headers, params=qs_visual)
+        data_vis = res_vis.json()
 
-        if not data.get('id') and not data.get('pk'):
-            print("[ERROR] Data not found or API Error (ID/PK missing).")
+        # For Comments
+        ig_id = data_vis.get('id')
+        if not ig_id:
+            print("[ERROR] ID tidak ditemukan di API Visual.")
             return None
-        
-        # Scrape Media Type
-        # 1=Photo, 2=Video, 8=Carousel
-        ig_type = data.get('media_type')
-        if ig_type == 2:
-            media_type = 'video'
-        else:
-            media_type = 'photo'
 
-        # Scrape URL
-        code = data.get('code')
-        clean_url = f"https://www.instagram.com/p/{code}"
-
-        # Scrape Description
-        description = ""
-        if data.get('caption'):
-            description = data['caption'].get('text', '')
-        
         # Scrape Thumbnail
-        try:
-            thumb_url = data['image_versions2']['candidates'][0]['url']
-        except (KeyError, IndexError, TypeError):
-            thumb_url = ""
+        thumbnail_url = data_vis.get('thumbnail_src', '')
+
+        # Scrape Media Type
+        if data_vis.get('is_video'):
+            media_type_db = 'video'
+        else:
+            media_type_db = 'photo'
 
         # Scrape Year
-        raw_time = int(data.get('taken_at', 0))
+        raw_time = data_vis.get('taken_at_timestamp') or data_vis.get('taken_at')
         if raw_time > 0:
             year = datetime.fromtimestamp(raw_time).year
         else:
             year = datetime.now().year
 
+    except Exception as e:
+        print(f"[ERROR] Failed to scrape visual data: {e}")
+        return None
+
+    # Text & Description
+    try:
+        qs_text = {
+            "reel_post_code_or_url": target_url,
+            "type": api_type
+        }
+        
+        print("   -> Requesting Text Data...")
+        res_text = requests.get(URL_API_TEXT, headers=headers, params=qs_text)
+        data_text = res_text.json()
+
+        # Scrape Description
+        description = data_text.get('post_caption', '')
+        
+        # If post_caption empty, try title
+        if not description:
+            description = data_text.get('title', '')
+
         # Scrape Tags
         tags = re.findall(r"#(\w+)", description)
 
-        # For Comments
-        ig_id = data.get('id')
-
-        print("[INFO] Successfully retrieved post details.")
-        return {
-            "url": clean_url,
-            "description": description,
-            "media_type": media_type,
-            "thumbnail": thumb_url,
-            "year": year,
-            "tags": tags,
-            "ig_id": ig_id
-        }
-
     except Exception as e:
-        print(f"[ERROR] Exception in Detail Scraper: {e}")
-        return None
+        print(f"[WARNING] Failed to scrape text data: {e}")
+        # Tidak return None, karena kita masih punya data visual yang valid
+
+    print("[INFO] Successfully retrieved post details.")
+    return {
+        "url": clean_url,
+        "description": description,
+        "media_type": media_type_db,
+        "thumbnail": thumbnail_url,
+        "year": year,
+        "tags": tags,
+        "ig_id": ig_id
+    }
 
 # --- SAVE DETAILS TO DB ---
 def insta_detail_db(data):
@@ -283,7 +299,7 @@ if __name__ == "__main__":
     
     if shortcode:
         # 2. Scrape Details
-        detail_data = insta_detail_scraper(input_url, api_type)
+        detail_data = insta_detail_scraper(input_url, shortcode, api_type)
         
         if detail_data:
             post_id_ig = detail_data.get('ig_id') 
