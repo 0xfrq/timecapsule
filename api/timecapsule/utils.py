@@ -1,6 +1,5 @@
 import os
 import uuid
-import shutil
 import requests
 import mimetypes
 import yt_dlp
@@ -13,7 +12,7 @@ from .models import Post, Tag, PostTime
 # Digunakan untuk: TikTok Slideshow & Instagram Photos
 def download_media(url, folder_name="downloads"):
     """
-    Download file statis (Gambar) menggunakan requests.
+    Download file statis (Gambar/Video) menggunakan requests.
     Dilengkapi Headers agar tidak dianggap bot oleh CDN TikTok/IG.
     """
     if not url:
@@ -31,15 +30,22 @@ def download_media(url, folder_name="downloads"):
         # Sesuaikan Referer
         if "tiktok" in url or "ttl" in url:
             headers["Referer"] = "https://www.tiktok.com/"
-        elif "instagram" in url or "fbcdn" in url:
+        elif "instagram" in url or "cdninstagram" in url or "fbcdn" in url:
             headers["Referer"] = "https://www.instagram.com/"
 
-        print(f"⬇️ [Requests] Downloading Image: {url[:40]}...")
+        print(f"⬇️ [Requests] Downloading: {url[:60]}...")
         response = requests.get(url, headers=headers, stream=True, timeout=30)
         
         if response.status_code == 200:
-            content_type = response.headers.get('content-type')
-            ext = mimetypes.guess_extension(content_type) or '.jpg'
+            content_type = response.headers.get('content-type', '')
+            
+            # Tentukan extension berdasarkan content-type
+            if 'video' in content_type:
+                ext = '.mp4'
+            elif 'image' in content_type:
+                ext = mimetypes.guess_extension(content_type) or '.jpg'
+            else:
+                ext = '.jpg'
             
             filename = f"{uuid.uuid4()}{ext}"
             full_path = os.path.join(save_path, filename)
@@ -93,122 +99,74 @@ def download_video_ytdlp(target_url):
         return None
 
 
-# ================= HELPER 3: DOWNLOAD INSTAGRAM MEDIA (Via YT-DLP + Temp Folder) =================
-def download_instagram_media(target_url):
+# ================= HELPER 3: DOWNLOAD INSTAGRAM MEDIA (Via API Data) =================
+def download_instagram_media_from_api(api_data):
     """
-    Download media Instagram menggunakan yt-dlp ke folder temp,
-    lalu pindahkan ke folder downloads dengan UUID rename.
+    Download media Instagram dari data API.
+    Detect carousel via edge_sidecar_to_children.
     
     Return: tuple (list_of_paths, media_type)
-    - list_of_paths: list path file yang sudah dipindah ke downloads
-    - media_type: 'video', 'photo', atau 'image_album'
     """
     downloads_folder = "downloads"
     downloads_path = os.path.join(settings.MEDIA_ROOT, downloads_folder)
     
-    # Buat folder downloads jika belum ada
     if not os.path.exists(downloads_path):
         os.makedirs(downloads_path)
-    
-    # Buat folder temp dengan UUID unik
-    temp_id = str(uuid.uuid4())
-    temp_folder = os.path.join(settings.MEDIA_ROOT, "temp", temp_id)
-    os.makedirs(temp_folder, exist_ok=True)
-    
-    print(f"📁 [IG] Created temp folder: {temp_folder}")
-    
-    ydl_opts = {
-        'quiet': True,
-        'format': 'best',
-        'outtmpl': os.path.join(temp_folder, '%(autonumber)s.%(ext)s'),
-        'noplaylist': False,  # Izinkan download semua item carousel
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    }
     
     final_paths = []
     media_type = 'photo'  # Default
     
-    try:
-        print(f"⬇️ [yt-dlp] Downloading Instagram: {target_url}")
+    # Cek apakah ini carousel (edge_sidecar_to_children)
+    sidecar = api_data.get('edge_sidecar_to_children')
+    
+    if sidecar and sidecar.get('edges'):
+        # ========== CAROUSEL / IMAGE ALBUM ==========
+        edges = sidecar['edges']
+        print(f"🖼️ [IG] Detected CAROUSEL with {len(edges)} items")
         
-        # Tambah verbose untuk debug
-        ydl_opts['quiet'] = False
-        ydl_opts['verbose'] = True
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.download([target_url])
-            print(f"📥 [yt-dlp] Download result code: {result}")
-        
-        # Scan semua file di temp folder
-        downloaded_files = []
-        for filename in os.listdir(temp_folder):
-            file_path = os.path.join(temp_folder, filename)
-            if os.path.isfile(file_path):
-                downloaded_files.append(file_path)
-        
-        # Sort untuk maintain order
-        downloaded_files.sort()
-        
-        print(f"📊 [IG] Found {len(downloaded_files)} file(s) in temp folder")
-        
-        # Tentukan media_type berdasarkan jumlah dan tipe file
-        video_extensions = {'.mp4', '.webm', '.mkv', '.avi', '.mov'}
-        image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
-        
-        video_count = 0
-        image_count = 0
-        
-        for file_path in downloaded_files:
-            ext = os.path.splitext(file_path)[1].lower()
-            if ext in video_extensions:
-                video_count += 1
-            elif ext in image_extensions:
-                image_count += 1
-        
-        # Pindahkan file ke downloads dengan UUID rename
-        for old_path in downloaded_files:
-            ext = os.path.splitext(old_path)[1].lower()
-            new_filename = f"{uuid.uuid4()}{ext}"
-            new_path = os.path.join(downloads_path, new_filename)
+        for idx, edge in enumerate(edges):
+            node = edge.get('node', {})
+            is_video = node.get('is_video', False)
             
-            shutil.move(old_path, new_path)
-            final_paths.append(f"{downloads_folder}/{new_filename}")
-            print(f"✅ [IG] Moved: {os.path.basename(old_path)} → {new_filename}")
-        
-        # Tentukan media_type
-        total_files = len(final_paths)
-        if total_files == 0:
-            media_type = 'none'
-        elif total_files == 1:
-            # Single file - cek apakah video atau photo
-            ext = os.path.splitext(final_paths[0])[1].lower()
-            if ext in video_extensions or ext == '.mp4':
-                media_type = 'video'
+            # Ambil URL - untuk video coba video_url dulu
+            if is_video:
+                item_url = node.get('video_url') or node.get('display_url')
             else:
-                media_type = 'photo'
-        else:
-            # Multiple files = image_album (carousel)
-            media_type = 'image_album'
-        
-        print(f"🏷️ [IG] Detected media_type: {media_type} ({total_files} file(s))")
-        
-    except Exception as e:
-        print(f"❌ [yt-dlp IG] Error: {e}")
-    
-    finally:
-        # Cleanup: hapus temp folder
-        try:
-            if os.path.exists(temp_folder):
-                shutil.rmtree(temp_folder)
-                print(f"🧹 [IG] Cleaned up temp folder: {temp_folder}")
+                item_url = node.get('display_url')
             
-            # Hapus parent temp folder jika kosong
-            temp_parent = os.path.join(settings.MEDIA_ROOT, "temp")
-            if os.path.exists(temp_parent) and not os.listdir(temp_parent):
-                os.rmdir(temp_parent)
-        except Exception as cleanup_error:
-            print(f"⚠️ [IG] Cleanup warning: {cleanup_error}")
+            if item_url:
+                print(f"   ⬇️ [{idx+1}/{len(edges)}] Downloading: {'video' if is_video else 'image'}...")
+                saved = download_media(item_url, downloads_folder)
+                if saved:
+                    final_paths.append(saved)
+        
+        # Tentukan media_type berdasarkan jumlah file
+        if len(final_paths) == 1:
+            media_type = 'photo'
+        else:
+            media_type = 'image_album'
     
+    elif api_data.get('is_video'):
+        # ========== SINGLE VIDEO ==========
+        print("🎥 [IG] Detected SINGLE VIDEO")
+        video_url = api_data.get('video_url')
+        if video_url:
+            saved = download_media(video_url, downloads_folder)
+            if saved:
+                final_paths.append(saved)
+        media_type = 'video'
+    
+    else:
+        # ========== SINGLE PHOTO ==========
+        print("📸 [IG] Detected SINGLE PHOTO")
+        photo_url = api_data.get('display_url')
+        if photo_url:
+            saved = download_media(photo_url, downloads_folder)
+            if saved:
+                final_paths.append(saved)
+        media_type = 'photo'
+    
+    print(f"🏷️ [IG] Final: {len(final_paths)} file(s) → {media_type}")
     return final_paths, media_type
 
 
@@ -303,14 +261,17 @@ def save_tiktok_to_db(data):
         return None
 
 
-# ================= INSTAGRAM LOGIC (NEW: Download First, Detect Later) =================
+# ================= INSTAGRAM LOGIC (API-Based with Carousel Support) =================
 def scrape_insta_data(original_url):
     """
-    Instagram Scraper dengan pendekatan baru:
-    1. Download semua media via yt-dlp ke temp folder
-    2. Hitung jumlah file untuk deteksi media_type
-    3. Pindahkan ke downloads folder dengan UUID rename
-    4. Ambil metadata (caption, thumbnail, dll) dari API
+    Instagram Scraper dengan deteksi carousel via edge_sidecar_to_children.
+    
+    Flow:
+    1. Call API get_media_data.php → dapat struktur media + URLs
+    2. Detect tipe: single photo, single video, atau carousel
+    3. Download semua media via requests
+    4. Call API get_reel_title.php → dapat caption
+    5. Return data untuk disimpan ke DB
     """
     
     # Parsing shortcode & type dari URL
@@ -329,31 +290,26 @@ def scrape_insta_data(original_url):
         api_type = "post"
 
     print("=" * 50)
-    print("🚀 [IG] Starting Instagram Scraper (Download-First Approach)")
+    print("🚀 [IG] Starting Instagram Scraper (API + Carousel Support)")
     print(f"📎 URL: {original_url}")
     print(f"🔖 Shortcode: {shortcode} | Type: {api_type}")
     print("=" * 50)
 
-    # STEP 1: Download media dulu (ini yang menentukan media_type)
-    paths, media_type = download_instagram_media(original_url)
-    
-    if not paths:
-        print("❌ [IG] No media downloaded, aborting...")
-        return None
-    
-    # STEP 2: Ambil metadata dari API (RapidAPI)
+    # API Headers
     headers = {
         "x-rapidapi-key": "31b6bb776fmshf2f28b986086358p1bdcc1jsn15e4b0eb8f34",
         "x-rapidapi-host": "instagram-scraper-stable-api.p.rapidapi.com"
     }
     
+    paths = []
+    media_type = 'photo'
     thumb = ""
     desc = ""
     year = datetime.now().year
     
+    # STEP 1: Get Visual/Media Data dari API
     try:
-        # --- Metadata Visual (untuk thumbnail & year) ---
-        print("📡 [IG] Fetching visual metadata from API...")
+        print("📡 [IG] Fetching media data from API...")
         querystring_visual = {
             "reel_post_code_or_url": original_url,
             "type": api_type
@@ -362,11 +318,15 @@ def scrape_insta_data(original_url):
             "https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php", 
             headers=headers, 
             params=querystring_visual,
-            timeout=15
+            timeout=30
         )
         data_vis = res_vis.json()
         
-        # Thumbnail
+        if not data_vis.get('id'):
+            print("❌ [IG] API returned no valid data (no 'id' field)")
+            return None
+        
+        # Thumbnail (selalu ambil dari root level)
         thumb = data_vis.get('thumbnail_src') or data_vis.get('display_url') or ""
         
         # Year dari timestamp
@@ -374,14 +334,22 @@ def scrape_insta_data(original_url):
         if raw_time and int(raw_time) > 0:
             year = datetime.fromtimestamp(int(raw_time)).year
         
-        print(f"   ✓ Visual: thumb={'Yes' if thumb else 'No'}, year={year}")
+        print(f"   ✓ API Response OK | Year: {year}")
         
+        # STEP 2: Download media berdasarkan struktur
+        paths, media_type = download_instagram_media_from_api(data_vis)
+        
+        if not paths:
+            print("❌ [IG] No media downloaded")
+            return None
+            
     except Exception as e:
-        print(f"⚠️ [IG] Visual API error (non-fatal): {e}")
+        print(f"❌ [IG] Visual API error: {e}")
+        return None
 
+    # STEP 3: Get Text/Caption Data
     try:
-        # --- Metadata Text (untuk caption/description) ---
-        print("📡 [IG] Fetching text metadata from API...")
+        print("📡 [IG] Fetching caption from API...")
         querystring_text = {
             "reel_post_code_or_url": original_url,
             "type": api_type
@@ -394,15 +362,13 @@ def scrape_insta_data(original_url):
         )
         data_txt = res_txt.json()
         
-        # Description/Caption
         desc = data_txt.get('post_caption') or data_txt.get('title') or ""
-        
-        print(f"   ✓ Text: desc={len(desc)} chars")
+        print(f"   ✓ Caption: {len(desc)} chars")
         
     except Exception as e:
         print(f"⚠️ [IG] Text API error (non-fatal): {e}")
     
-    # STEP 3: Compile hasil
+    # STEP 4: Compile hasil
     result = {
         "url": original_url,
         "description": desc, 
@@ -414,7 +380,7 @@ def scrape_insta_data(original_url):
     }
     
     print("=" * 50)
-    print("✅ [IG] Scrape complete!")
+    print(f"✅ [IG] Scrape complete!")
     print(f"   Media Type: {media_type}")
     print(f"   Files: {len(paths)}")
     print(f"   Tags: {len(result['tags'])}")
