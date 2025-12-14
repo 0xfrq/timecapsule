@@ -51,9 +51,11 @@ class Tag(models.Model):
         return self.name
 
 class Post(models.Model):
+    local_file = models.TextField(null=True, blank=True)
     MEDIA_TYPE_CHOICES = [
         ('video', 'Video'),
         ('photo', 'Photo'),
+        ('image_album', 'Image Album'),  # Added for carousel/slideshow support
         ('none', 'None'),
     ]
     
@@ -87,7 +89,7 @@ class PostLike(models.Model):
 class Comment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
     
-    # ‘dummy_user_id’ for clarity that this is not a real user
+    # 'dummy_user_id' for clarity that this is not a real user
     dummy_user_id = models.IntegerField(null=True, blank=True)
     
     # Self-reference for Reply feature
